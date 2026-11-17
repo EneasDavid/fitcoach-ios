@@ -49,7 +49,7 @@ struct SessionRecordTests {
         #expect(bench.sets.map(\.isWarmup) == [true, false, false, false])
         let first = bench.sets[1]
         #expect(first.weightKg == 60 && first.reps == 10 && first.rpe == 7 && first.restSeconds == 45 && first.time == RecFx.day.addingTimeInterval(240))
-        #expect(bench.volumeKg == 60 * 10 + 55 * 12 + 60 * 6)                                   // warm-ups aren't volume
+        #expect(bench.volumeKg == 1_620)                                                         // 60×10 + 55×12 + 60×6; warm-ups aren't volume
     }
 
     @Test("Set against the plan: reps inside the range, the load asked for (warm-ups have no target); the plan line is readable")

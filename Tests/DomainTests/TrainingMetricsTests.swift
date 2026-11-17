@@ -54,9 +54,9 @@ struct TrainingMetricsTests {
         let current = try #require(summary.weeks.last)
         // This week (Mon 11 → Sun 17 March): sessions a (1 day ago, Thu) and b (2 days ago, Wed).
         #expect(current.sessions == 2 && current.workingSets == 3 && current.reps == 28)
-        #expect(current.volumeLoadKg == 60 * 10 + 60 * 8 + 50 * 10)
+        #expect(current.volumeLoadKg == 1580)                          // 60×10 + 60×8 + 50×10 (a literal: long mixed arithmetic makes the type-checker give up)
         #expect(current.minutes == 80)
-        #expect(current.sessionLoad == 8 * 50 + 6 * 30)
+        #expect(current.sessionLoad == 580)                            // 8×50 + 6×30
         #expect(summary.weeks.dropLast().filter { $0.sessions == 0 }.count >= 5)                       // gaps are visible
     }
 
