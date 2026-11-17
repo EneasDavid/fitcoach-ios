@@ -41,6 +41,14 @@ class FitCoachUITestCase: XCTestCase {
     /// The profile avatar sits at the top-left of every main screen, student and trainer alike.
     func logOut() {
         let avatar = app.buttons["open-profile"]
+        // Pushed screens (a student, a plan) have no avatar: walk back to the main screen first (at most a few levels deep).
+        var levels = 0
+        while !avatar.waitForExistence(timeout: 2), levels < 4 {
+            let back = app.navigationBars.buttons.element(boundBy: 0)
+            guard back.exists else { break }
+            back.tap()
+            levels += 1
+        }
         XCTAssertTrue(avatar.waitForExistence(timeout: 10))
         avatar.tap()
         app.buttons["log-out"].tap()
