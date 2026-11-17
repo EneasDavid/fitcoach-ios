@@ -1,0 +1,9 @@
+# gitleaks configuration: the default rules, plus one narrow, explained exception.
+title = "FitCoach gitleaks"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deliberately fake credentials: the tests of the MASVS secret scanner plant them (built from parts, never real) to prove the scanner catches them."
+paths = ['''scripts/ci/test_ci_scripts\.py''']
