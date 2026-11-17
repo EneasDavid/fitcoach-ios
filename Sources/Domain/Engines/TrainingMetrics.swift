@@ -148,23 +148,23 @@ public struct TrainingMetricsBuilder: Sendable {
         let trends = exerciseTrends(completed)
         let rest = restCompliance(inWindow, plan: plan)
         let prescription = prescriptionAdherence(inWindow, plan: plan)
-        let adherence = plan.map { adherence(completed, plan: $0, now: now) }
+        let attendance = plan.map { adherence(completed, plan: $0, now: now) }       // not `adherence`: a local of that name would hide the method
         let lastSession = completed.last?.effectiveDate
         let since = lastSession.map { max(0, calendar.dateComponents([.day], from: calendar.startOfDay(for: $0), to: calendar.startOfDay(for: now)).day ?? 0) }
 
         let sets = inWindow.flatMap(workingSets(in:))
         let reps = sets.reduce(0) { $0 + $1.reps }
         let volume = sets.reduce(0.0) { $0 + $1.volumeKg }
-        let minutes = inWindow.reduce(0.0) { $0 + minutes(of: $1) }
+        let trainedMinutes = inWindow.reduce(0.0) { $0 + minutes(of: $1) }            // not `minutes`: same reason
 
         let zone = ratio.map(Self.zone(for:))
         return TrainingSummary(
-            adherence: adherence, weeks: weeks, workloadRatio: ratio, workloadZone: zone, exercises: trends, rest: rest, prescription: prescription,
+            adherence: attendance, weeks: weeks, workloadRatio: ratio, workloadZone: zone, exercises: trends, rest: rest, prescription: prescription,
             daysSinceLastSession: since,
             averageLoadPerRepKg: reps > 0 ? volume / Double(reps) : nil,
-            volumePerMinuteKg: minutes > 0 ? volume / minutes : nil,
+            volumePerMinuteKg: trainedMinutes > 0 ? volume / trainedMinutes : nil,
             weeklySetsByMuscle: setsByMuscle(completed, now: now, muscles: muscles),
-            alerts: alerts(adherence: adherence, ratio: ratio, zone: zone, trends: trends, rest: rest, daysSince: since))
+            alerts: alerts(adherence: attendance, ratio: ratio, zone: zone, trends: trends, rest: rest, daysSince: since))
     }
 
     public static func zone(for ratio: Double) -> WorkloadZone {
