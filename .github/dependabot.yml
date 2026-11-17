@@ -1,0 +1,22 @@
+# Keeps the pinned parts of the pipeline and the dependencies current, so a fix for a published vulnerability arrives as a pull request.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }      # don't adopt a release in its first week (a compromised release is usually pulled quickly)
+    groups: { actions: { patterns: ["*"] } }
+  - package-ecosystem: npm
+    directory: /functions
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }      # don't adopt a release in its first week (a compromised release is usually pulled quickly)
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /firebase
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }      # don't adopt a release in its first week (a compromised release is usually pulled quickly)
+    open-pull-requests-limit: 5
+  - package-ecosystem: swift
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }      # don't adopt a release in its first week (a compromised release is usually pulled quickly)

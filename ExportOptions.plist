@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key><string>app-store-connect</string>
+    <!-- "export" writes an .ipa locally (dry run). scripts/testflight.sh --upload rewrites this to "upload". -->
+    <key>destination</key><string>export</string>
+    <key>signingStyle</key><string>automatic</string>
+    <key>uploadSymbols</key><true/>
+    <key>manageAppVersionAndBuildNumber</key><true/>
+    <!-- teamID is injected by the script from $DEVELOPMENT_TEAM -->
+</dict>
+</plist>

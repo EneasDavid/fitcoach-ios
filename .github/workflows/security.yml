@@ -1,0 +1,185 @@
+# Security pipeline, organised by the OWASP projects it implements. See docs/SECURITY_CI.md for what each job proves, what it does not, and the one-time
+# repository settings it expects (secrets, variables, branch protection).
+#
+#   secrets ........... gitleaks                       credentials committed to git history              (OWASP A02/A05, MASVS-STORAGE)
+#   sast-semgrep ...... Semgrep, OWASP Top 10 rules    injection, weak crypto, insecure patterns          (OWASP Top 10 2021)
+#   masvs-static ...... scripts/ci/masvs_static_checks cleartext, weak crypto, secrets in storage, open Firestore rules, unauthenticated endpoints
+#   sca-dependency-check OWASP Dependency-Check        known-vulnerable dependencies (CVE/NVD)            (OWASP A06)
+#   sca-npm ........... npm audit + CycloneDX SBOM     advisories for the Cloud Functions, an SBOM artifact
+#   workflow-hardening  scripts/ci/check_workflows     the OWASP Top 10 CI/CD Security Risks, in these very files
+#   codeql ............ CodeQL (opt-in)                semantic SAST for Swift and JavaScript             needs a public repo or GitHub Advanced Security
+#   zap-baseline ...... OWASP ZAP (manual)             passive DAST against a backend YOU own             run by hand with a URL
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      zap_target_url:
+        description: "Base URL of a backend you own, to scan with OWASP ZAP (leave empty to skip)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { fetch-depth: 0, persist-credentials: false }
+      - name: Scan the whole history
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source /repo --redact --no-banner --exit-code 1
+
+  sast-semgrep:
+    name: SAST (Semgrep, OWASP Top 10 rules)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - name: Scan (fails on any finding)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep semgrep scan \
+            --config p/owasp-top-ten --config p/javascript --config p/secrets \
+            --metrics=off --error --sarif --output semgrep.sarif \
+            --exclude node_modules --exclude build --exclude .build .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with: { name: semgrep-sarif, path: semgrep.sarif, if-no-files-found: ignore, retention-days: 30 }
+
+  masvs-static:
+    name: MASVS + API Top 10 static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - run: python3 scripts/ci/masvs_static_checks.py
+
+  sca-dependency-check:
+    name: SCA (OWASP Dependency-Check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: odc-data
+          key: odc-${{ github.run_id }}
+          restore-keys: odc-
+      - name: Scan the lockfiles (fails at CVSS 7.0 and above)
+        if: env.NVD_API_KEY != ''
+        run: |
+          mkdir -p odc-data odc-report
+          docker run --rm \
+            -v "$PWD:/src:ro" -v "$PWD/odc-data:/usr/share/dependency-check/data" -v "$PWD/odc-report:/report" \
+            -e NVD_API_KEY owasp/dependency-check \
+            --scan /src/functions/package-lock.json --scan /src/Package.swift --enableExperimental \
+            --suppression /src/.github/dependency-check-suppressions.xml \
+            --nvdApiKey "$NVD_API_KEY" --failOnCVSS 7 --format HTML --format SARIF --out /report
+      - name: Skipped (no NVD API key)
+        if: env.NVD_API_KEY == ''
+        run: echo "::warning::Dependency-Check skipped. Add a repository secret NVD_API_KEY (free at nvd.nist.gov/developers/request-an-api-key); without it the vulnerability database download takes hours."
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with: { name: dependency-check-report, path: odc-report, if-no-files-found: ignore, retention-days: 30 }
+
+  sca-npm:
+    name: SCA (npm audit) + SBOM (OWASP CycloneDX)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: npm, cache-dependency-path: functions/package-lock.json }
+      - name: Production dependencies of the Cloud Functions must have no high or critical advisory
+        working-directory: functions
+        run: npm ci --ignore-scripts && npm audit --omit=dev --audit-level=high
+      - name: "Test tooling (not shipped): reported, not blocking"
+        working-directory: firebase
+        continue-on-error: true
+        run: npm ci --ignore-scripts && npm audit --audit-level=high
+      - name: Software bill of materials (CycloneDX)
+        working-directory: functions
+        run: npx --yes @cyclonedx/cyclonedx-npm --omit dev --output-file ../sbom-functions.cdx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with: { name: sbom, path: sbom-functions.cdx.json, retention-days: 90 }
+
+  workflow-hardening:
+    name: CI/CD hardening (OWASP Top 10 CI/CD risks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - run: pip install pyyaml==6.0.2
+      - run: python3 scripts/ci/check_workflows.py
+
+  codeql:
+    name: "CodeQL (${{ matrix.language }})"
+    # Opt-in: code-scanning results need a public repository or GitHub Advanced Security. Enable with the repository variable ENABLE_CODE_SCANNING=true.
+    if: vars.ENABLE_CODE_SCANNING == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { language: javascript-typescript, runner: ubuntu-latest, build-mode: none }
+          - { language: swift, runner: macos-26, build-mode: manual }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+      - name: Build the app (Swift only)
+        if: matrix.language == 'swift'
+        run: |
+          scripts/ci/select_xcode.sh
+          brew install xcodegen && xcodegen generate
+          xcodebuild build -project FitCoach.xcodeproj -scheme FitCoach -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with: { category: "/language:${{ matrix.language }}" }
+
+  zap-baseline:
+    name: DAST (OWASP ZAP baseline, manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.zap_target_url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TARGET: ${{ inputs.zap_target_url }}
+    steps:
+      - name: Passive scan of a backend you own (never point this at a system you do not control)
+        run: |
+          mkdir -p zap && chmod 777 zap
+          docker run --rm -v "$PWD/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$TARGET" -r report.html -I
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with: { name: zap-report, path: zap, if-no-files-found: ignore, retention-days: 30 }
