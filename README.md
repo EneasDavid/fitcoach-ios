@@ -5,7 +5,97 @@ SwiftData, CryptoKit/Keychain. This repository holds the **architecture, the dat
 that carries the risk** — the sync engine, the progression analytics, the security layer — plus the app target that
 wires them to Firebase and the OS.
 
+[![CI](https://github.com/EneasDavid/fitcoach-ios/actions/workflows/ci.yml/badge.svg)](https://github.com/EneasDavid/fitcoach-ios/actions/workflows/ci.yml)
+[![Security](https://github.com/EneasDavid/fitcoach-ios/actions/workflows/security.yml/badge.svg)](https://github.com/EneasDavid/fitcoach-ios/actions/workflows/security.yml)
+[![Release](https://img.shields.io/github/v/release/EneasDavid/fitcoach-ios?include_prereleases&label=vers%C3%A3o)](https://github.com/EneasDavid/fitcoach-ios/releases)
+![Licença](https://img.shields.io/badge/licen%C3%A7a-todos%20os%20direitos%20reservados-lightgrey)
+
+## Início rápido (pt-BR)
+
+**FitCoach** é um app iOS para personal trainers e alunos: o personal cadastra o aluno (CPF + nome), monta os treinos, acompanha a evolução (métricas, histórico por dia,
+medidas corporais, fotos) e pode **executar o treino junto com o aluno**; o aluno treina, vê o histórico em calendário e compartilha cartões no feed.
+
+### Capturas de tela
+Simulador de iPhone em **modo demonstração** (dados de exemplo, em português). O *Resumo* do personal, o *histórico completo por dia*, *Executar treino* e *Corpo* foram
+criados depois destas capturas e ainda não têm imagem.
+
+| Hoje (modo escuro) | Visão geral do treino | Exercício |
+|:--:|:--:|:--:|
+| <img src="docs/screenshots/01-hoje-escuro.png" width="240" alt="Tela Hoje"> | <img src="docs/screenshots/02-treino-visao-geral.png" width="240" alt="Visão geral do treino"> | <img src="docs/screenshots/03-exercicio.png" width="240" alt="Tela do exercício"> |
+
+| Histórico (calendário) | Personal: alunos | Personal: evolução | Configurações |
+|:--:|:--:|:--:|:--:|
+| <img src="docs/screenshots/04-historico-calendario.png" width="180" alt="Histórico"> | <img src="docs/screenshots/05-personal-alunos.png" width="180" alt="Lista de alunos"> | <img src="docs/screenshots/06-personal-evolucao.png" width="180" alt="Evolução"> | <img src="docs/screenshots/07-configuracoes.png" width="180" alt="Configurações"> |
+
+### O banco de dados já está configurado?
+**Não.** Este repositório **não tem nenhum banco configurado**: não existe projeto Firebase, e por isso não há `GoogleService-Info.plist`, nem URL do backend, nem
+segredos. O app abre mesmo assim em **modo demonstração**, com dados de exemplo guardados só na memória do aparelho (nada é salvo na nuvem).
+
+Os arquivos `*.example` mostram **o que preencher** (valores em branco; os reais ficam fora do Git, que ignora `.env`, `GoogleService-Info.plist`, `*.p8`):
+
+| Arquivo de exemplo | Copie para | Para quê |
+|---|---|---|
+| [`.env.example`](.env.example) | `.env` | Time da Apple, chave do App Store Connect, `BACKEND_BASE_URL`, ids públicos (Spotify/Facebook), chave do NVD |
+| [`functions/.env.example`](functions/.env.example) | `functions/.env` | Parâmetros das Cloud Functions (Strava, URL pública) |
+| [`App/GoogleService-Info.plist.example`](App/GoogleService-Info.plist.example) | `App/GoogleService-Info.plist` | Formato do arquivo que o Firebase gera (use o **real**, baixado do console) |
+| [`firebase/.firebaserc.example`](firebase/.firebaserc.example) | `firebase/.firebaserc` | Id do projeto Firebase para o `firebase deploy` |
+
+**Para usar um banco de verdade (Firebase):**
+1. Crie um projeto em console.firebase.google.com e ative **Authentication**, **Firestore** (região `southamerica-east1`) e **App Check**. As Cloud Functions exigem o plano **Blaze**
+   (pago por uso, com cota gratuita).
+2. Em *Configurações do projeto → Seus apps → iOS* (bundle id `com.fitcoach.app`), baixe o `GoogleService-Info.plist` e salve em `App/`.
+3. `cp firebase/.firebaserc.example firebase/.firebaserc` e troque pelo id do seu projeto; publique as regras:
+   `cd firebase && npm ci && npx firebase deploy --only firestore:rules,firestore:indexes`.
+4. `cp functions/.env.example functions/.env`; defina os segredos (`npx firebase functions:secrets:set REGISTRATION_SECRET`, e os do Strava/Places se for usá-los) e publique:
+   `cd functions && npm ci && npx firebase deploy --only functions`.
+5. Coloque a URL das funções em `BACKEND_BASE_URL` (`.env`) e gere o app de novo. **Sem essa URL o primeiro acesso e a redefinição de senha ficam desligados.**
+6. A conta do **personal** (login por CREF) precisa ser criada por um operador: ainda não há script para isso, e nada aqui valida o CREF no conselho. Para a redefinição de senha por
+   e-mail, instale a extensão *Trigger Email from Firestore*.
+Nada disso foi executado contra um Firebase real: é a configuração esperada, ainda **não verificada**.
+
+### Duplicar o projeto em outro computador
+Precisa de um **Mac** com **Xcode 26 ou mais novo** (o app usa APIs do iOS 26) e o [Homebrew](https://brew.sh).
+```bash
+git clone https://github.com/EneasDavid/fitcoach-ios.git
+```
+```bash
+cd fitcoach-ios && brew install xcodegen node && xcodegen generate
+```
+1. `open FitCoach.xcodeproj` (o projeto é **gerado** a partir de `project.yml` e não vai para o Git: sempre rode `xcodegen generate` depois de clonar ou de mudar o `project.yml`).
+2. Escolha um simulador de iPhone. Para o **modo demonstração**, em *Product → Scheme → Edit Scheme → Run → Arguments*, adicione `-UITestMode -UITestStubCatalog`
+   (acrescente `-UITestTrainer` para abrir direto na área do personal). Depois, Run (⌘R). Entradas da demonstração: aluno CPF `390.533.447-05` / senha `demo123`; personal CREF `012345-G/AL` / qualquer senha.
+3. Testes, sem precisar de Firebase real:
+```bash
+swift test
+```
+```bash
+(cd functions && npm ci && npm test)
+```
+```bash
+(cd firebase && npm ci && npm test)
+```
+   O terceiro precisa de **Java 21** (o emulador do Firestore). Os testes de interface rodam pelo Xcode (⌘U) num simulador de **iPhone**.
+4. Opcional: `cp .env.example .env` e preencha o que for usar (TestFlight, URL do backend). Para o banco de dados real, veja a seção acima.
+5. O projeto fica no Git; **nada de chave ou senha** deve ser copiado: leve só o repositório. Para colocar num iPhone de verdade ou no TestFlight é preciso uma conta paga da Apple (`scripts/testflight.sh --check`).
+
+> O código é **todos os direitos reservados** (veja [`LICENSE`](LICENSE)): clonar para estudar e avaliar é permitido pelo GitHub; qualquer outro uso precisa de autorização do titular.
+
+### Versões e releases
+Versionamento semântico (`vMAJOR.MINOR.PATCH`), histórico no [`CHANGELOG.md`](CHANGELOG.md) e releases em [Releases](https://github.com/EneasDavid/fitcoach-ios/releases).
+Versões **0.y.z são pré-releases** (desenvolvimento inicial); a linha **estável começa no 1.0.0**, com os critérios em [`docs/RELEASING.md`](docs/RELEASING.md). Cada tag publica,
+pelo `release.yml`, o código-fonte, um SBOM (CycloneDX) e checksums. A aba *Packages* do GitHub fica vazia de propósito: o GitHub Packages não hospeda pacotes Swift (o SwiftPM usa as
+tags do repositório) e este projeto vai para o TestFlight, não para um registro. Detalhes em `docs/RELEASING.md`.
+
+### Segurança e licença
+- Política de segurança e como reportar uma vulnerabilidade em particular: [`SECURITY.md`](SECURITY.md). O pipeline de segurança (OWASP) está descrito em [`docs/SECURITY_CI.md`](docs/SECURITY_CI.md).
+- Licença: **todos os direitos reservados** (© 2026 David Ferreira), em [`LICENSE`](LICENSE).
+
+---
+
 ## 1. Verification status — read this first
+
+> Os números desta tabela vêm de um *snapshot* anterior e estão desatualizados (hoje há bem mais testes). O estado atual é o dos selos de CI acima e do `CHANGELOG.md`.
+
 
 | Part | Compiled | Tests run | Notes |
 |---|---|---|---|

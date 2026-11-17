@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Shape of the file Firebase gives you. DO NOT put real values here: download the real one from
+     Firebase console → Project settings → Your apps → iOS, save it as App/GoogleService-Info.plist (git-ignored). -->
+<plist version="1.0">
+<dict>
+  <key>API_KEY</key><string>YOUR_API_KEY</string>
+  <key>GCM_SENDER_ID</key><string>000000000000</string>
+  <key>PLIST_VERSION</key><string>1</string>
+  <key>BUNDLE_ID</key><string>com.fitcoach.app</string>
+  <key>PROJECT_ID</key><string>your-firebase-project-id</string>
+  <key>STORAGE_BUCKET</key><string>your-firebase-project-id.firebasestorage.app</string>
+  <key>GOOGLE_APP_ID</key><string>1:000000000000:ios:0000000000000000</string>
+</dict>
+</plist>

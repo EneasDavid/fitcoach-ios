@@ -24,3 +24,9 @@ functions/*-debug.log
 *.pem
 *.key
 .DS_Store
+
+# ...but the documented examples are committed
+!.env.example
+!**/.env.example
+!**/.firebaserc.example
+!App/GoogleService-Info.plist.example

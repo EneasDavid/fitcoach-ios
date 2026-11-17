@@ -12,6 +12,12 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      run-ui:
+        description: "Run the (slow) app + UI regression job"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -81,6 +87,7 @@ jobs:
     name: "[macOS] App tests + UI regression (iPhone simulator)"
     runs-on: macos-26
     needs: packages
+    if: ${{ inputs.run-ui != false }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

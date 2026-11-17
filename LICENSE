@@ -1,0 +1,15 @@
+Copyright (c) 2026 David Ferreira. All rights reserved.
+
+This source code is publicly visible for reference and evaluation only.
+
+No license is granted to use, copy, modify, merge, publish, distribute, sublicense, or sell
+copies of this software, or any part of it, without the prior written permission of the
+copyright holder.
+
+Viewing and forking this repository on GitHub is allowed under GitHub's Terms of Service.
+
+Third-party components (for example the Firebase SDK and the packages listed in the
+package-lock.json files) are not covered by this notice and remain under their own licenses.
+
+Todos os direitos reservados. O código está visível apenas para consulta e avaliação; qualquer
+outro uso exige autorização prévia e por escrito do titular.

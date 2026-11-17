@@ -41,6 +41,9 @@ def check_workflow(name: str, doc: dict) -> list[str]:
 
     for job_id, job in (doc.get("jobs") or {}).items():
         where = f"{name} job `{job_id}`"
+        if job.get("uses"):                       # a call to a reusable workflow: GitHub forbids `timeout-minutes` here (the called jobs carry their own)
+            problems += _check_uses(where, job["uses"], {})
+            continue
         if "timeout-minutes" not in job:
             problems.append(f"{where}: no timeout-minutes (CICD-SEC-5)")
         for index, step in enumerate(job.get("steps") or []):

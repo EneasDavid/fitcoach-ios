@@ -5,6 +5,9 @@ Please **do not open a public issue**. Use GitHub's private reporting: *Security
 Include what you found, how to reproduce it, and which part of the system it touches (iOS app, Firestore rules, Cloud Functions). Expect an
 acknowledgement within a few days.
 
+## Supported versions
+The project is in initial development (0.y.z): only the **latest release** and `main` receive security fixes. A stable line starts at 1.0.0 (see [`docs/RELEASING.md`](docs/RELEASING.md)).
+
 ## What is in scope
 The iOS app (`App/`, `Sources/`), the Firestore security rules (`firebase/firestore.rules`) and the Cloud Functions (`functions/`).
 Student data includes **health and body measurements, photos and identifiers (CPF)**: treat any way to read another person's data, to write

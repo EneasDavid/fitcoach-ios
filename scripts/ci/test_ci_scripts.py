@@ -80,6 +80,19 @@ class WorkflowChecks(unittest.TestCase):
     def test_docker_images_must_be_pinned_by_digest(self):
         self.assertTrue(any("digest" in p for p in self.problems(GOOD.replace("      - run: echo", "      - uses: docker://alpine:3\n      - run: echo"))))
 
+    def test_a_call_to_a_reusable_workflow_needs_no_timeout_but_must_be_local_or_pinned(self):
+        call = """
+        name: c
+        on: { push: {} }
+        permissions: { contents: read }
+        jobs:
+          verify:
+            uses: %s
+        """
+        self.assertEqual(self.problems(call % "./.github/workflows/ci.yml"), [])
+        self.assertEqual(self.problems(call % ("someone/repo/.github/workflows/x.yml@" + "b" * 40)), [])
+        self.assertTrue(any("pinned" in p for p in self.problems(call % "someone/repo/.github/workflows/x.yml@v1")))
+
     def test_every_workflow_in_the_repository_passes(self):
         self.assertEqual(workflows.main([]), 0)
 
@@ -152,6 +165,46 @@ class MasvsChecks(unittest.TestCase):
         js = "exports.open = onRequest({}, async (req, res) => { res.json({}); });\nexports.shut = onRequest({}, async (req, res) => { const uid = await requireUser(req, res); });\nexports.job = onDocumentCreated('x', async () => {});"
         self.assertEqual(self.found({"functions/index.js": js}, masvs.check_function_auth), ["endpoint-without-auth"])
 
+
+
+release_notes = load("release_notes")
+
+CHANGELOG = """# Changelog
+## [Unreleased]
+
+## [1.2.0] - 2026-01-01
+### Added
+- the new thing
+
+## [1.1.0] - 2025-12-01
+- older
+
+[Unreleased]: https://example.com/compare
+[1.2.0]: https://example.com/1.2.0
+"""
+
+
+class ReleaseNotes(unittest.TestCase):
+    def test_a_version_prints_only_its_own_section(self):
+        text = release_notes.section(CHANGELOG, "v1.2.0")
+        self.assertIn("the new thing", text)
+        self.assertNotIn("older", text)
+        self.assertNotIn("example.com", text)
+
+    def test_a_version_without_notes_is_refused(self):
+        with self.assertRaises(SystemExit):
+            release_notes.section(CHANGELOG, "v9.9.9")
+        with self.assertRaises(SystemExit):
+            release_notes.section(CHANGELOG, "Unreleased-nope")
+
+    def test_stable_starts_at_one_point_zero(self):
+        self.assertTrue(release_notes.is_prerelease("v0.1.0"))
+        self.assertTrue(release_notes.is_prerelease("v1.0.0-rc.1"))
+        self.assertFalse(release_notes.is_prerelease("v1.0.0"))
+        self.assertFalse(release_notes.is_prerelease("v2.3.4"))
+
+    def test_the_real_changelog_has_notes_for_the_current_version(self):
+        self.assertIn("First public snapshot", release_notes.section((HERE.parents[1] / "CHANGELOG.md").read_text(encoding="utf-8"), "v0.1.0"))
 
 if __name__ == "__main__":
     unittest.main()

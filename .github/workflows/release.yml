@@ -1,0 +1,57 @@
+# Cuts a GitHub Release when a version tag is pushed (vMAJOR.MINOR.PATCH, optionally -suffix). The tagged commit must pass the regression suite first;
+# the notes come from CHANGELOG.md (a tag without notes fails); 0.y.z and -suffix versions are published as *pre-releases*, stable starts at 1.0.0.
+# Attached: the source archive, a CycloneDX SBOM of the Cloud Functions, and SHA-256 checksums. See docs/RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: Regression suite on the tagged commit
+    uses: ./.github/workflows/ci.yml
+    with:
+      run-ui: false          # the UI regression runs on pull requests and nightly; it is a gate for 1.0.0 (docs/RELEASING.md), not for every pre-release
+
+  publish:
+    name: Publish the release
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: npm, cache-dependency-path: functions/package-lock.json }
+      - name: Release notes from the changelog (fails if the version has none)
+        run: python3 scripts/ci/release_notes.py "$TAG" > release-notes.md
+      - name: Assets (source archive, SBOM, checksums)
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix="fitcoach-ios-${TAG}/" -o "dist/fitcoach-ios-${TAG}.tar.gz" "$TAG"
+          (cd functions && npm ci --ignore-scripts && npx --yes @cyclonedx/cyclonedx-npm --omit dev --output-file "../dist/sbom-functions-${TAG}.cdx.json")
+          (cd dist && shasum -a 256 * > SHA256SUMS.txt)
+      - name: Create the GitHub Release
+        run: |
+          FLAG=""
+          if python3 -c "import sys; sys.path.insert(0,'scripts/ci'); import release_notes; sys.exit(0 if release_notes.is_prerelease(sys.argv[1]) else 1)" "$TAG"; then FLAG="--prerelease"; fi
+          gh release create "$TAG" dist/* --title "$TAG" --notes-file release-notes.md --verify-tag $FLAG

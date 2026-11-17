@@ -10,6 +10,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Optional local configuration (git-ignored): copy .env.example to .env.
+if [[ -f .env ]]; then set -a; source .env; set +a; fi
+
 UPLOAD=0; [[ "${1:-}" == "--upload" ]] && UPLOAD=1
 
 # --check: a read-only preflight. It looks at this machine and your environment and says what is missing; it never signs, builds or uploads.
