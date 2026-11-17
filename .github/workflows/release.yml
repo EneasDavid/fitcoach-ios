@@ -50,8 +50,15 @@ jobs:
           git archive --format=tar.gz --prefix="fitcoach-ios-${TAG}/" -o "dist/fitcoach-ios-${TAG}.tar.gz" "$TAG"
           (cd functions && npm ci --ignore-scripts && npx --yes @cyclonedx/cyclonedx-npm --omit dev --output-file "../dist/sbom-functions-${TAG}.cdx.json")
           (cd dist && shasum -a 256 * > SHA256SUMS.txt)
-      - name: Create the GitHub Release
+      - name: Create (or refresh) the GitHub Release
         run: |
-          FLAG=""
-          if python3 -c "import sys; sys.path.insert(0,'scripts/ci'); import release_notes; sys.exit(0 if release_notes.is_prerelease(sys.argv[1]) else 1)" "$TAG"; then FLAG="--prerelease"; fi
-          gh release create "$TAG" dist/* --title "$TAG" --notes-file release-notes.md --verify-tag $FLAG
+          PRE=false
+          if python3 -c "import sys; sys.path.insert(0,'scripts/ci'); import release_notes; sys.exit(0 if release_notes.is_prerelease(sys.argv[1]) else 1)" "$TAG"; then PRE=true; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Re-running for a tag that already has a release (for example after the tag was moved): refresh the assets and notes instead of failing.
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --notes-file release-notes.md --prerelease="$PRE"
+          else
+            FLAG=""; if [ "$PRE" = true ]; then FLAG="--prerelease"; fi
+            gh release create "$TAG" dist/* --title "$TAG" --notes-file release-notes.md --verify-tag $FLAG
+          fi
