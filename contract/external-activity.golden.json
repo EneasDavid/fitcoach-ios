@@ -1,0 +1,19 @@
+{
+  "averageHeartRate": 152,
+  "distanceMeters": 5234.6,
+  "elapsedSeconds": 1900,
+  "elevationGainMeters": 41,
+  "externalID": "9876543210",
+  "id": "strava-9876543210",
+  "meta": {
+    "lastWriterDeviceID": "cloud-function",
+    "updatedAt": { "$date": 1705309200 },
+    "version": 1
+  },
+  "movingSeconds": 1805,
+  "name": "Morning Run",
+  "source": "strava",
+  "sportType": "Run",
+  "startedAt": { "$date": 1705303800 },
+  "studentID": "student-1"
+}

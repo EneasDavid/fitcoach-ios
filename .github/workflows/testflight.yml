@@ -1,0 +1,39 @@
+# Manual TestFlight upload. NOT RUN YET: it needs a paid Apple Developer account. Create a repository *environment* called `testflight`
+# (Settings → Environments), add the secrets there and require a reviewer, so the keys are released only to this job and only after approval:
+# APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (base64 of the .p8), GOOGLE_SERVICE_INFO_PLIST (base64), BACKEND_BASE_URL.
+name: TestFlight
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: macos-26
+    environment: testflight
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - run: scripts/ci/select_xcode.sh
+      - run: brew install xcodegen
+      - name: Secrets → files
+        run: |
+          echo "$GOOGLE_SERVICE_INFO_PLIST" | base64 --decode > App/GoogleService-Info.plist
+          echo "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+        env:
+          GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      - name: Archive and upload
+        run: scripts/testflight.sh --upload
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          BUILD_NUMBER: ${{ github.run_number }}
+      - name: Remove the key material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8" App/GoogleService-Info.plist

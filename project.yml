@@ -1,0 +1,134 @@
+# XcodeGen spec — `brew install xcodegen && xcodegen generate` produces FitCoach.xcodeproj.
+# NOT VERIFIED in the authoring environment (no Xcode there). Treat it as the starting point, not a guarantee.
+name: FitCoach
+
+options:
+  bundleIdPrefix: com.fitcoach
+  developmentLanguage: en
+  knownRegions: [en, pt-BR]
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  FitCoachKit:
+    path: .
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "12.0.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # DEVELOPMENT_TEAM: ABCDE12345        # <- your team, required for TestFlight signing
+
+targets:
+  FitCoach:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    dependencies:
+      - package: FitCoachKit
+        product: Domain
+      - package: FitCoachKit
+        product: SyncKit
+      - package: FitCoachKit
+        product: SecurityKit
+      - package: FitCoachKit
+        product: DataKit
+      - package: FitCoachKit
+        product: PresentationKit
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseAppCheck
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: FitCoach
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.fitcoach.app.sync
+          - com.fitcoach.app.reminders
+        CFBundleURLTypes:
+          - CFBundleURLName: com.fitcoach.app.deeplink
+            CFBundleURLSchemes: [fitcoach]
+        # Sharing: WhatsApp and Instagram Stories are opened by URL scheme, which iOS only allows for schemes listed here.
+        LSApplicationQueriesSchemes: [whatsapp, instagram-stories]
+        # Integration configuration (public identifiers only — never a secret). Empty = that integration is off in this build.
+        SpotifyClientID: $(SPOTIFY_CLIENT_ID)
+        BackendBaseURL: $(BACKEND_BASE_URL)
+        FacebookAppID: $(FACEBOOK_APP_ID)
+        NSLocationAlwaysAndWhenInUseUsageDescription: >-
+          FitCoach uses your location only on this device to notice when you arrive at your gym and show today's
+          workout. Your location is never sent to our servers.
+        NSLocationWhenInUseUsageDescription: >-
+          FitCoach uses your location only on this device to notice when you arrive at your gym.
+        # TestFlight export compliance: the app uses OS-provided encryption only (TLS, CryptoKit AES-GCM). Decide the
+        # ITSAppUsesNonExemptEncryption answer with your legal/compliance owner before the first upload.
+    entitlements:
+      path: App/FitCoach.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
+        # Data-protection keychain is the default on iOS; no shared access group is requested on purpose.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fitcoach.app
+        TARGETED_DEVICE_FAMILY: "1,2"          # iPhone + iPad
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
+        SPOTIFY_CLIENT_ID: ""
+        BACKEND_BASE_URL: ""           # https://southamerica-east1-<project>.cloudfunctions.net
+        FACEBOOK_APP_ID: 
+    scheme:
+      testTargets: [FitCoachTests, FitCoachUITests]
+      gatherCoverageData: true
+      coverageTargets: [FitCoach]
+
+  FitCoachTests:
+    type: bundle.unit-test
+    platform: iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.fitcoach.app.tests
+    sources:
+      - AppTests
+      # Same contract file the package's DataKitTests uses: SwiftData is held to identical behaviour.
+      - Tests/DataKitTests/RecordStoreContract.swift
+    dependencies:
+      - target: FitCoach
+      - package: FitCoachKit
+        product: DataKit
+      - package: FitCoachKit
+        product: SyncKit
+      - package: FitCoachKit
+        product: SecurityKit
+      - package: FitCoachKit
+        product: Domain
+      # Firebase is NOT listed here on purpose: linking it into both the app and the test bundle makes Xcode build a
+      # second, dynamic copy of FirebaseFirestore that fails to link. The tests reach it through the host app.
+
+  FitCoachUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.fitcoach.app.uitests
+    sources:
+      - AppUITests
+    dependencies:
+      - target: FitCoach

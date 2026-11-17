@@ -1,0 +1,342 @@
+// NOT VERIFIED in the authoring environment (no Firebase emulator available).
+// Before shipping, cover every rule below with @firebase/rules-unit-testing against the Firestore emulator:
+//   firebase emulators:exec --only firestore "npm test"
+//
+// Security model
+//  * AUTHORISATION NEVER DEPENDS ON THE CLIENT-SUPPLIED `role` FIELD. A trainer can reach a student's data only
+//    through `trainerLinks/{trainerId}_{studentId}` with status == 'active', which is written exclusively by a
+//    Cloud Function after the student accepts the trainer's invitation. Clients cannot create or edit links.
+//  * Students write only their own logs/check-ins; trainers write plans, body-composition checkpoints and the `coachedLogs` (workouts the trainer ran
+//    next to the student).
+//  * No hard deletes anywhere: removals are tombstones (`meta.deletedAt`) so every device and the trainer see them.
+//  * Every client write must carry `_updatedAt == request.time`, i.e. it came through the sync gateway
+//    (which stamps server time), and `meta.version` must strictly increase (optimistic concurrency).
+//  * Strava data is double-gated: a linked trainer can read a student's externalActivities only while (1) the student
+//    switched `sharing/preferences.shareStravaWithTrainer` on AND (2) the server-side kill switch
+//    `config/features.stravaCoachSharing` is true. (Strava's API terms restrict showing an athlete's data to anyone but
+//    the athlete; (2) lets the operator turn coach visibility off for everyone without shipping an app update.)
+//    Fail-closed: if either document is missing the read is denied.
+//  * `externalActivities` and `integrations` are written ONLY by Cloud Functions (Admin SDK): OAuth proves whose Strava
+//    account it is, and the webhook resolves the student from that proof. Clients can never write them.
+//  * `registrations` (the trainer's students, CPF only as a masked string) are written ONLY by Cloud Functions and readable only by
+//    the trainer who registered them. The trainer's private nicknames live in `trainers/{trainerId}/nicknames`, which no student
+//    account can read — a nickname can never reach a student.
+//  * `passwordResets` (hashed one-time codes), `mail` (the outbox the e-mail extension reads), `claimTokens` and `rateLimits` belong to Cloud
+//    Functions alone: the default-deny at the bottom covers them, and rules tests pin it.
+//  * A trainer's name / photo / CREF live in `trainerProfiles/{trainerId}`: the trainer writes, only that trainer's linked students read.
+//  * Posts are private to the student. Their PHOTOS are mirrored into `sharedPhotos`, which the linked trainer can read. Raw listening history never reaches Firestore (it stays on the device).
+//  * Writes are validated for shape and range (OWASP M4: input validation) — Firestore is the last line of defence
+//    if a tampered client skips the app's own validation.
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function isSelf(uid) { return signedIn() && me() == uid; }
+
+    function linkPath(trainerId, studentId) {
+      return /databases/$(database)/documents/trainerLinks/$(trainerId + '_' + studentId);
+    }
+    function isLinkedTrainerOf(studentId) {
+      return signedIn() && exists(linkPath(me(), studentId))
+        && get(linkPath(me(), studentId)).data.status == 'active';
+    }
+
+    // A student reaches their trainer's public profile through the same server-written link.
+    function isLinkedStudentOf(trainerId) {
+      return signedIn() && exists(linkPath(trainerId, me()))
+        && get(linkPath(trainerId, me())).data.status == 'active';
+    }
+    function isTrainerAccount() {
+      let account = /databases/$(database)/documents/users/$(me());
+      return signedIn() && exists(account) && get(account).data.role == 'trainer';
+    }
+
+    function stamped() { return request.resource.data._updatedAt == request.time; }
+    function versionAdvances() { return request.resource.data.meta.version > resource.data.meta.version; }
+    function unchanged(field) { return request.resource.data[field] == resource.data[field]; }
+
+    function stravaSharedWithTrainer(studentId) {
+      let prefs = /databases/$(database)/documents/students/$(studentId)/sharing/preferences;
+      let features = /databases/$(database)/documents/config/features;
+      return exists(prefs) && get(prefs).data.get('shareStravaWithTrainer', false) == true
+        && exists(features) && get(features).data.get('stravaCoachSharing', false) == true;
+    }
+
+    // ---------- shape validation ----------
+    function validPost(postId) {
+      let d = request.resource.data;
+      return d.id == postId
+        && d.kind in ['workout', 'personalRecord', 'playlistOfTheDay', 'externalActivity']
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 160
+        && (!('subtitle' in d) || (d.subtitle is string && d.subtitle.size() <= 200))
+        && (!('stats' in d) || (d.stats is list && d.stats.size() <= 12))
+        && (!('tracks' in d) || (d.tracks is list && d.tracks.size() <= 10))
+        && (!('photo' in d) || (d.photo is string && d.photo.size() <= 700000))     // a downsized JPEG, base64; Firestore documents max out at 1 MiB
+        && d.meta.version is int;
+    }
+
+    function validPlan() {
+      let d = request.resource.data;
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 120
+        && d.templates is list && d.templates.size() <= 14
+        && d.targetSessionsPerWeek is int && d.targetSessionsPerWeek >= 1 && d.targetSessionsPerWeek <= 7
+        && d.meta.version is int;
+    }
+
+    function validLog(logId) {
+      let d = request.resource.data;
+      return d.id == logId
+        && d.status in ['inProgress', 'completed', 'abandoned', 'skipped']
+        && d.blocks is list && d.blocks.size() <= 40
+        && (!('sessionRPE' in d) || (d.sessionRPE is int && d.sessionRPE >= 1 && d.sessionRPE <= 10))
+        && (!('feedbackNote' in d) || (d.feedbackNote is string && d.feedbackNote.size() <= 2000))
+        && d.meta.version is int;
+    }
+
+    function validSharedPhoto(photoId) {
+      let d = request.resource.data;
+      return d.id == photoId
+        && d.caption is string && d.caption.size() <= 160
+        && d.photo is string && d.photo.size() <= 700000                  // a downsized JPEG, base64 (empty once removed)
+        && d.meta.version is int;
+    }
+
+    // Name, photo and CREF — what a trainer shows their students.
+    function validTrainerProfile(trainerId) {
+      let d = request.resource.data;
+      return d.id == trainerId
+        && d.displayName is string && d.displayName.size() > 0 && d.displayName.size() <= 120
+        && (d.get('cref', null) == null || (d.cref is string && d.cref.matches('^[0-9]{6}-[GP]/[A-Z]{2}$')))
+        && (d.get('photo', null) == null || (d.photo is string && d.photo.size() <= 400000))      // a downsized JPEG, base64
+        && d.meta.version is int;
+    }
+
+    function validNickname(registrationId) {
+      let d = request.resource.data;
+      return d.id == registrationId
+        && d.nickname is string && d.nickname.size() > 0 && d.nickname.size() <= 30
+        && d.meta.version is int;
+    }
+
+    // An optional numeric field: absent (or null, which is how an unset Swift optional may arrive) is fine; present means in range.
+    function optNum(field, lo, hi) {
+      let v = request.resource.data.get(field, null);
+      return v == null || (v is number && v >= lo && v <= hi);
+    }
+    function optInt(field, lo, hi) {
+      let v = request.resource.data.get(field, null);
+      return v == null || (v is int && v >= lo && v <= hi);
+    }
+
+    // The trainer's measurement: a weight, plus whatever a bioimpedance scale or a tape measure gave. Only the weight is required.
+    function validCheckpoint() {
+      let d = request.resource.data;
+      return d.bodyWeightKg is number && d.bodyWeightKg >= 20 && d.bodyWeightKg <= 400
+        && optNum('bodyFatPercent', 2, 60)
+        && optNum('measuredFatMassKg', 0.5, 250) && d.get('measuredFatMassKg', 0) < d.bodyWeightKg
+        && optNum('measuredLeanMassKg', 5, 300) && d.get('measuredLeanMassKg', 0) <= d.bodyWeightKg
+        && optNum('skeletalMuscleMassKg', 5, 150) && d.get('skeletalMuscleMassKg', 0) <= d.bodyWeightKg
+        && optNum('bodyWaterPercent', 30, 80)
+        && optInt('visceralFatLevel', 1, 60)
+        && optNum('boneMassKg', 0.5, 10)
+        && optInt('basalMetabolicRateKcal', 500, 6000)
+        && optInt('metabolicAge', 5, 120)
+        && optNum('waistCm', 40, 250) && optNum('hipCm', 40, 250)
+        && (d.get('notes', null) == null || (d.notes is string && d.notes.size() <= 500))
+        && d.meta.version is int;
+    }
+
+    // Height / weight / age the student gave at first access (copied into their own account document by the Cloud Function).
+    function validProfileNumbers() {
+      return optNum('heightCm', 100, 250) && optNum('weightKg', 20, 400) && optInt('age', 12, 100);
+    }
+
+    // ---------- collections ----------
+    match /users/{userId} {
+      allow read: if isSelf(userId) || isLinkedTrainerOf(userId);
+      // The role is chosen once at sign-up. Trainer onboarding should additionally be gated server-side
+      // (e.g. an approval flow that sets a custom claim) if self-service trainer sign-up isn't wanted.
+      allow create: if isSelf(userId)
+        && request.resource.data.role in ['student', 'trainer']
+        && !('trainerID' in request.resource.data)
+        && validProfileNumbers() && stamped();
+      allow update: if isSelf(userId)
+        && unchanged('role')
+        && request.resource.data.get('trainerID', null) == resource.data.get('trainerID', null)
+        && validProfileNumbers() && stamped();
+      allow delete: if false;   // account deletion runs in a Cloud Function (data erasure for LGPD/GDPR + App Store rule)
+    }
+
+    match /trainerLinks/{linkId} {
+      allow read: if signedIn() && (resource.data.trainerID == me() || resource.data.studentID == me());
+      allow write: if false;    // Cloud Functions only
+    }
+
+    match /plans/{planId} {
+      // The sync gateway's transaction *reads before it creates*, so a `get` of a document that does not exist yet
+      // must be allowed (`resource == null`) — otherwise no plan could ever be created. This reveals nothing but
+      // "that id is unused"; existing plans stay visible only to their two parties. Plan ids are random UUIDs.
+      allow get: if signedIn()
+        && (resource == null || resource.data.studentID == me() || resource.data.trainerID == me());
+      allow list: if signedIn() && (resource.data.studentID == me() || resource.data.trainerID == me());
+      allow create: if signedIn()
+        && request.resource.data.trainerID == me()
+        && isLinkedTrainerOf(request.resource.data.studentID)
+        && validPlan() && stamped();
+      allow update: if signedIn()
+        && resource.data.trainerID == me()
+        && unchanged('trainerID') && unchanged('studentID')
+        && versionAdvances() && validPlan() && stamped();
+      allow delete: if false;
+    }
+
+    match /students/{studentId} {
+      match /workoutLogs/{logId} {
+        allow read: if isSelf(studentId) || isLinkedTrainerOf(studentId);
+        allow create: if isSelf(studentId)
+          && request.resource.data.studentID == studentId
+          && request.resource.data.get('coachedBy', null) == null         // a student can't present their own log as one the trainer ran
+          && validLog(logId) && stamped();
+        allow update: if isSelf(studentId)
+          && unchanged('studentID') && unchanged('planID')
+          && request.resource.data.get('coachedBy', null) == null
+          && versionAdvances() && validLog(logId) && stamped();
+        allow delete: if false;
+      }
+
+      // Workouts the TRAINER ran on their own device, next to the student. A separate collection from `workoutLogs` so each document has exactly one
+      // writer (the sync gateway replaces whole documents): the trainer writes these, the student's device only reads them.
+      match /coachedLogs/{logId} {
+        allow read: if isSelf(studentId) || isLinkedTrainerOf(studentId);
+        allow create: if isLinkedTrainerOf(studentId)
+          && request.resource.data.studentID == studentId
+          && request.resource.data.coachedBy == me()
+          && get(/databases/$(database)/documents/plans/$(request.resource.data.planID)).data.trainerID == me()      // a plan of THIS trainer
+          && validLog(logId) && stamped();
+        allow update: if isLinkedTrainerOf(studentId)
+          && resource.data.coachedBy == me()
+          && unchanged('studentID') && unchanged('planID') && unchanged('coachedBy')
+          && versionAdvances() && validLog(logId) && stamped();
+        allow delete: if false;
+      }
+
+      match /checkIns/{checkInId} {
+        allow read: if isSelf(studentId) || isLinkedTrainerOf(studentId);
+        allow create, update: if isSelf(studentId)
+          && request.resource.data.studentID == studentId
+          && request.resource.data.meta.version is int && stamped();
+        allow delete: if false;
+      }
+
+      match /bodyCheckpoints/{checkpointId} {
+        allow read: if isSelf(studentId) || isLinkedTrainerOf(studentId);
+        allow create: if isLinkedTrainerOf(studentId)
+          && request.resource.data.trainerID == me()
+          && request.resource.data.studentID == studentId
+          && validCheckpoint() && stamped();
+        allow update: if isLinkedTrainerOf(studentId)
+          && resource.data.trainerID == me()
+          && unchanged('studentID') && unchanged('trainerID')
+          && versionAdvances() && validCheckpoint() && stamped();
+        allow delete: if false;
+      }
+
+      // Shareable cards. Private: not even the trainer reads them.
+      match /posts/{postId} {
+        allow read: if isSelf(studentId);          // (no resource condition: the gateway reads before it creates)
+        allow create: if isSelf(studentId)
+          && request.resource.data.studentID == studentId
+          && validPost(postId) && stamped();
+        allow update: if isSelf(studentId)
+          && unchanged('studentID')
+          && versionAdvances() && validPost(postId) && stamped();
+        allow delete: if false;
+      }
+
+      // The pictures a student attached to their cards, mirrored here so the linked trainer can see them. The cards themselves (which can carry
+      // the songs that were playing) stay private above; only the photo, its date and the card's title are shared.
+      match /sharedPhotos/{photoId} {
+        allow read: if isSelf(studentId) || isLinkedTrainerOf(studentId);
+        allow create: if isSelf(studentId)
+          && request.resource.data.studentID == studentId
+          && validSharedPhoto(photoId) && stamped();
+        allow update: if isSelf(studentId)
+          && unchanged('studentID')
+          && versionAdvances() && validSharedPhoto(photoId) && stamped();
+        allow delete: if false;                  // removal is a tombstone (meta.deletedAt), like everywhere else
+      }
+
+      // Imported by the Strava webhook's Cloud Function. Never client-writable.
+      match /externalActivities/{activityId} {
+        allow read: if isSelf(studentId)
+          || (isLinkedTrainerOf(studentId) && stravaSharedWithTrainer(studentId));
+        allow write: if false;
+      }
+
+      // Proof of what is connected (written by the OAuth callback). Never client-writable.
+      match /integrations/{provider} {
+        allow read: if isSelf(studentId);
+        allow write: if false;
+      }
+
+      // What the student allows. The only thing here a client may write.
+      match /sharing/{docId} {
+        allow read: if isSelf(studentId);
+        allow create, update: if isSelf(studentId)
+          && docId == 'preferences'
+          && request.resource.data.studentID == studentId
+          && request.resource.data.shareStravaWithTrainer is bool
+          && request.resource.data.includeMusicInPosts is bool
+          && request.resource.data.meta.version is int && stamped();
+        allow delete: if false;
+      }
+    }
+
+    // The personal trainer's students. Written by Cloud Functions (registerStudent / completeRegistration), never by a client.
+    match /registrations/{registrationId} {
+      allow read: if signedIn() && resource.data.trainerID == me();
+      allow write: if false;
+    }
+
+    // What a trainer shows their students (name, photo, CREF). The trainer writes it; their own linked students can read it; nobody else.
+    match /trainerProfiles/{trainerId} {
+      allow read: if isSelf(trainerId) || isLinkedStudentOf(trainerId);
+      allow create: if isSelf(trainerId) && isTrainerAccount() && validTrainerProfile(trainerId) && stamped();
+      allow update: if isSelf(trainerId) && isTrainerAccount() && versionAdvances() && validTrainerProfile(trainerId) && stamped();
+      allow delete: if false;
+    }
+
+    // A trainer's private labels for their students ("Maria da 7h"). Nobody but that trainer can read or write them.
+    match /trainers/{trainerId}/nicknames/{registrationId} {
+      allow read: if isSelf(trainerId);
+      allow create: if isSelf(trainerId)
+        && request.resource.data.trainerID == trainerId
+        && validNickname(registrationId) && stamped();
+      allow update: if isSelf(trainerId)
+        && unchanged('trainerID')
+        && versionAdvances() && validNickname(registrationId) && stamped();
+      allow delete: if false;                   // removal is a tombstone (meta.deletedAt), like everywhere else
+    }
+
+    // Feature flags / operator switches read by the rules above. Readable so the UI can hide what is switched off.
+    match /config/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Exercise catalogue cache, filled by a Cloud Function that proxies the vendor API (keeps the API key server-side).
+    match /exerciseCache/{exerciseId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Default deny.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
