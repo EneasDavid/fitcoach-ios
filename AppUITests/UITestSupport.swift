@@ -87,6 +87,36 @@ class FitCoachUITestCase: XCTestCase {
         element.typeText(text)
     }
 
+    /// Types the 11 digits of a CPF into a masked field and checks the dots and dash came out right.
+    ///
+    /// The mask rewrites the field after every digit. Typing all eleven in one burst on a loaded CI simulator can outrun that rewrite
+    /// and lose some of them (a run ended with "390.570.5" for "39053344705"), so this types one digit at a time — XCUITest waits for the
+    /// app to settle between calls, which is how a person types — and, if the field still ended up wrong, clears it and starts over.
+    func typeCPF(_ digits: String, into element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(element.waitForExistence(timeout: 10), "missing \(element)", file: file, line: line)
+        element.tap()
+        let expected = Self.maskedCPF(digits)
+        for _ in 0..<3 {
+            for digit in digits { element.typeText(String(digit)) }
+            let current = (element.value as? String) ?? ""
+            if current == expected { return }
+            // Wrong: delete whatever is there (a masked CPF is at most 14 characters) and go again.
+            element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: max(current.count, 14)))
+        }
+        XCTFail("the CPF field never showed \(expected); it shows \((element.value as? String) ?? "nothing")", file: file, line: line)
+    }
+
+    /// 11144477735 → 111.444.777-35 (kept here, not imported from the app: the UI test must not share the code it checks).
+    static func maskedCPF(_ digits: String) -> String {
+        var result = ""
+        for (index, digit) in digits.enumerated() {
+            if index == 3 || index == 6 { result.append(".") }
+            if index == 9 { result.append("-") }
+            result.append(digit)
+        }
+        return result
+    }
+
     /// Accessibility labels refresh a beat after the UI changes; poll instead of reading them once.
     func waitForLabel(_ element: XCUIElement, toContain text: String, timeout: TimeInterval = 4) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)

@@ -348,7 +348,7 @@ final class StudentWorkoutFlowUITests: FitCoachUITestCase {
         // 1) The personal trainer (CREF) registers a student by CPF + name…
         signIn("012345-G/AL", password: "123456")
         tap(app.buttons["add-student"], expecting: app.textFields["new-student-cpf"])
-        type("11144477735", into: app.textFields["new-student-cpf"])
+        typeCPF("11144477735", into: app.textFields["new-student-cpf"])
         XCTAssertEqual(app.textFields["new-student-cpf"].value as? String, "111.444.777-35", "the CPF gets its dots and dash as it is typed")
         type("Maria Souza", into: app.textFields["new-student-name"])
         app.buttons["register-student"].tap()
@@ -368,7 +368,7 @@ final class StudentWorkoutFlowUITests: FitCoachUITestCase {
 
         // 2) …who logs in for the first time with that CPF and name, and fills in the rest.
         tap(app.buttons["first-access"], expecting: app.textFields["first-access-cpf"])
-        type("11144477735", into: app.textFields["first-access-cpf"])
+        typeCPF("11144477735", into: app.textFields["first-access-cpf"])
         type("maria  SOUZA", into: app.textFields["first-access-name"])           // case and spacing don't matter
         tap(app.buttons["first-access-continue"], expecting: app.textFields["first-access-email"])
         type("maria@example.com", into: app.textFields["first-access-email"])
@@ -421,7 +421,7 @@ final class StudentWorkoutFlowUITests: FitCoachUITestCase {
         XCTAssertTrue(app.buttons["start-workout"].waitForExistence(timeout: 15))
         logOut()
         app.buttons["first-access"].tap()
-        type("39053344705", into: app.textFields["first-access-cpf"])             // the seeded demo student's CPF…
+        typeCPF("39053344705", into: app.textFields["first-access-cpf"])             // the seeded demo student's CPF…
         type("Someone Else", into: app.textFields["first-access-name"])              // …with the wrong name
         app.buttons["first-access-continue"].tap()
         let error = app.staticTexts["first-access-error"]

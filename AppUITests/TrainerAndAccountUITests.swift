@@ -132,7 +132,7 @@ final class TrainerAndAccountUITests: FitCoachUITestCase {
         XCTAssertEqual(identifier.value as? String, "390.533.447-05")
 
         tap(app.buttons["first-access"], expecting: app.textFields["first-access-cpf"])
-        type(demoCPF, into: app.textFields["first-access-cpf"])
+        typeCPF(demoCPF, into: app.textFields["first-access-cpf"])
         XCTAssertEqual(app.textFields["first-access-cpf"].value as? String, "390.533.447-05")
     }
 
@@ -141,7 +141,7 @@ final class TrainerAndAccountUITests: FitCoachUITestCase {
         XCTAssertTrue(app.buttons["start-workout"].waitForExistence(timeout: 15))
         logOut()
         tap(app.buttons["forgot-password"], expecting: app.textFields["reset-cpf"])
-        type(demoCPF, into: app.textFields["reset-cpf"])
+        typeCPF(demoCPF, into: app.textFields["reset-cpf"])
         XCTAssertEqual(app.textFields["reset-cpf"].value as? String, "390.533.447-05")
         XCTAssertFalse(app.buttons["reset-send"].isEnabled)
         type("aluno@demo.app", into: app.textFields["reset-email"])
@@ -171,7 +171,7 @@ final class TrainerAndAccountUITests: FitCoachUITestCase {
         XCTAssertTrue(app.buttons["start-workout"].waitForExistence(timeout: 15))
         logOut()
         tap(app.buttons["forgot-password"], expecting: app.textFields["reset-cpf"])
-        type(demoCPF, into: app.textFields["reset-cpf"])
+        typeCPF(demoCPF, into: app.textFields["reset-cpf"])
         type("someone.else@example.com", into: app.textFields["reset-email"])
         tap(app.buttons["reset-send"], expecting: app.textFields["reset-code"])                  // exactly what a matching e-mail does
 
