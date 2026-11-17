@@ -18,7 +18,11 @@ enum AppEnvironment: Equatable {
 
     /// `-UITestMode` (XCUITest / manual demo) or being hosted by a unit-test run → demo mode. A test host must never
     /// reach for Firebase or the real Keychain: there is no GoogleService-Info.plist and `FirebaseApp.configure()` would crash.
-    static func detect(_ info: ProcessInfo = .processInfo) -> AppEnvironment {
+    ///
+    /// A **debug** build without `GoogleService-Info.plist` (someone who just cloned the repository and has no Firebase project) also
+    /// opens in demo mode instead of crashing in `FirebaseApp.configure()`. A **release** build never falls back: a store or TestFlight
+    /// build that lost its plist must fail loudly, not quietly ship as a demo with fake data.
+    static func detect(_ info: ProcessInfo = .processInfo, firebaseConfigured: Bool = AppEnvironment.hasFirebaseConfiguration()) -> AppEnvironment {
         let arguments = info.arguments
         let hostedByTests = info.environment["XCTestConfigurationFilePath"] != nil
             || info.environment["XCTestBundlePath"] != nil
@@ -26,7 +30,24 @@ enum AppEnvironment: Equatable {
         if arguments.contains("-UITestMode") || hostedByTests {
             return .uiTesting(startOffline: arguments.contains("-UITestOffline"))
         }
+        if !firebaseConfigured && allowsDemoFallback {
+            return .uiTesting(startOffline: arguments.contains("-UITestOffline"))
+        }
         return .production
+    }
+
+    /// True once the Firebase client config (the file the Firebase console generates; git-ignored) is inside the app bundle.
+    static func hasFirebaseConfiguration(in bundle: Bundle = .main) -> Bool {
+        bundle.url(forResource: "GoogleService-Info", withExtension: "plist") != nil
+    }
+
+    /// Only debug builds may fall back to the demo; see `detect`.
+    private static var allowsDemoFallback: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
     }
 }
 

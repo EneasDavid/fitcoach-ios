@@ -6,6 +6,10 @@ project uses [Semantic Versioning](https://semver.org/). Versions below **1.0.0*
 
 ## [Unreleased]
 
+### Changed
+- A **Debug** build without `App/GoogleService-Info.plist` now opens in the in-memory demo mode instead of crashing in `FirebaseApp.configure()`, so a fresh clone runs
+  with no Firebase project. **Release** builds never fall back (a missing plist stays a hard failure). `-UITestMode` still forces the demo.
+
 ## [0.1.0] - 2026-11-17
 
 First public snapshot.

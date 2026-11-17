@@ -29,7 +29,8 @@ criados depois destas capturas e ainda não têm imagem.
 
 ### O banco de dados já está configurado?
 **Não.** Este repositório **não tem nenhum banco configurado**: não existe projeto Firebase, e por isso não há `GoogleService-Info.plist`, nem URL do backend, nem
-segredos. O app abre mesmo assim em **modo demonstração**, com dados de exemplo guardados só na memória do aparelho (nada é salvo na nuvem).
+segredos. O app abre mesmo assim em **modo demonstração**, com dados de exemplo guardados só na memória do aparelho (nada é salvo na nuvem). Isso é automático: um build
+**Debug** sem `App/GoogleService-Info.plist` entra sozinho na demonstração. Um build **Release** não faz isso de propósito: sem o arquivo ele falha, em vez de publicar uma demonstração por engano.
 
 Os arquivos `*.example` mostram **o que preencher** (valores em branco; os reais ficam fora do Git, que ignora `.env`, `GoogleService-Info.plist`, `*.p8`):
 
@@ -62,8 +63,9 @@ git clone https://github.com/EneasDavid/fitcoach-ios.git
 cd fitcoach-ios && brew install xcodegen node && xcodegen generate
 ```
 1. `open FitCoach.xcodeproj` (o projeto é **gerado** a partir de `project.yml` e não vai para o Git: sempre rode `xcodegen generate` depois de clonar ou de mudar o `project.yml`).
-2. Escolha um simulador de iPhone. Para o **modo demonstração**, em *Product → Scheme → Edit Scheme → Run → Arguments*, adicione `-UITestMode -UITestStubCatalog`
-   (acrescente `-UITestTrainer` para abrir direto na área do personal). Depois, Run (⌘R). Entradas da demonstração: aluno CPF `390.533.447-05` / senha `demo123`; personal CREF `012345-G/AL` / qualquer senha.
+2. Escolha um simulador de iPhone e rode (⌘R). **Sem `GoogleService-Info.plist` o app já abre em modo demonstração**, sem configurar nada. Opcional, em *Product → Scheme → Edit Scheme →
+   Run → Arguments*: `-UITestStubCatalog` (catálogo de exercícios sem rede) e `-UITestTrainer` (abre direto na área do personal). Entradas da demonstração: aluno CPF `390.533.447-05` /
+   senha `demo123`; personal CREF `012345-G/AL` / qualquer senha. Se você já colocou o plist do seu Firebase em `App/` e quer ver a demonstração mesmo assim, use o argumento `-UITestMode`.
 3. Testes, sem precisar de Firebase real:
 ```bash
 swift test
@@ -332,8 +334,9 @@ DEVELOPMENT_TEAM=ABCDE12345 BACKEND_BASE_URL=https://… ASC_KEY_ID=… ASC_ISSU
   scripts/testflight.sh --upload                                                         # sends it to App Store Connect → TestFlight
 ```
 
-To just look at the app without Firebase: build, then `xcrun simctl launch <udid> com.fitcoach.app -UITestMode` (in-memory stores, a loopback "server",
-seeded demo data; add `-UITestTrainer` to open in the personal trainer's area).
+To just look at the app without Firebase: a **Debug** build with no `App/GoogleService-Info.plist` opens in demo mode by itself (`AppEnvironment.detect`); with a plist present,
+or to force it, launch with `-UITestMode`, e.g. `xcrun simctl launch <udid> com.fitcoach.app -UITestMode` (in-memory stores, a loopback "server", seeded demo data; add
+`-UITestTrainer` to open in the personal trainer's area). A **Release** build never falls back to the demo: a missing plist there is a packaging error and must fail.
 
 ## 8b. CI/CD and security pipeline
 
