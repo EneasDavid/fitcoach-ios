@@ -25,7 +25,7 @@ jobs:
     name: Regression suite on the tagged commit
     uses: ./.github/workflows/ci.yml
     with:
-      run-ui: false          # the UI regression runs on pull requests and nightly; it is a gate for 1.0.0 (docs/RELEASING.md), not for every pre-release
+      run-ui: "false"        # the UI regression runs on pull requests and nightly; it is a gate for 1.0.0 (docs/RELEASING.md), not for every pre-release
 
   publish:
     name: Publish the release
