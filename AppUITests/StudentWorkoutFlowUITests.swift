@@ -227,8 +227,7 @@ final class StudentWorkoutFlowUITests: FitCoachUITestCase {
         let identifier = app.textFields["sign-in-identifier"]
         XCTAssertTrue(identifier.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["sign-in-button"].isEnabled)
-        identifier.tap()
-        identifier.typeText("52998224725")
+        typeCPF("52998224725", into: identifier)
         XCTAssertTrue(app.staticTexts["sign-in-detected"].waitForExistence(timeout: 3))
         let password = app.secureTextFields["sign-in-password"]
         password.tap()
@@ -466,8 +465,13 @@ final class StudentWorkoutFlowUITests: FitCoachUITestCase {
 
 private extension XCUIElement {
     func clearAndType(_ text: String) {
-        guard let current = value as? String else { return typeText(text) }
         tap()
-        typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + text)
+        // Small bursts of deletes, re-reading the field in between: one long burst can outrun the sign-in field's mask and leave characters behind.
+        for _ in 0..<8 {
+            guard let before = value as? String, !before.isEmpty else { break }
+            typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: min(before.count, 4)))
+            if (value as? String) == before { break }        // unchanged: the field is empty (an empty field reports its placeholder)
+        }
+        typeText(text)
     }
 }

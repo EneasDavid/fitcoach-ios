@@ -57,7 +57,8 @@ class FitCoachUITestCase: XCTestCase {
     func signIn(_ identifier: String, password: String) {
         let field = app.textFields["sign-in-identifier"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
-        field.tap(); field.typeText(identifier)
+        if identifier.count == 11, identifier.allSatisfy(\.isNumber) { typeCPF(identifier, into: field) }     // masked: see typeCPF
+        else { field.tap(); field.typeText(identifier) }
         let secret = app.secureTextFields["sign-in-password"]
         secret.tap(); secret.typeText(password)
         app.buttons["sign-in-button"].tap()

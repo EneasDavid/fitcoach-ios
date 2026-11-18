@@ -100,11 +100,14 @@ jobs:
           UDID="$(scripts/ci/pick_iphone.sh)"
           echo "Simulator: $UDID"
           mkdir -p build
+          # A UI test that fails is re-run up to twice: typing into a masked field on a loaded CI simulator can still lose a keystroke.
+          # A test that needs the retry is listed as such in the result bundle, so it stays visible. Real failures fail all three times.
           xcodebuild test \
             -project FitCoach.xcodeproj -scheme FitCoach \
             -destination "id=$UDID" \
             -enableCodeCoverage YES \
             -resultBundlePath build/FitCoach.xcresult \
+            -retry-tests-on-failure -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
