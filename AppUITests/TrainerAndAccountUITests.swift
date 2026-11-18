@@ -128,7 +128,7 @@ final class TrainerAndAccountUITests: FitCoachUITestCase {
         XCTAssertTrue(app.buttons["start-workout"].waitForExistence(timeout: 15))
         logOut()
         let identifier = app.textFields["sign-in-identifier"]
-        type(demoCPF, into: identifier)
+        typeCPF(demoCPF, into: identifier)
         XCTAssertEqual(identifier.value as? String, "390.533.447-05")
 
         tap(app.buttons["first-access"], expecting: app.textFields["first-access-cpf"])
